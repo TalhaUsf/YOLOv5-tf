@@ -1,0 +1,5 @@
+*.dat
+*.npy
+weights/*
+*__pycache__*
+07_Python_Advanced_Topics

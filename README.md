@@ -7,6 +7,12 @@
 * Optional, `python main.py --record` to generate tf-record for your dataset  
 * Run `python main.py --train` for training
 
+#### dataset classes
+
+```markdown
+aeroplane, bicycle, boat, bus, car, motorbike, train, bottle, chair, dining table, potted plant, sofa, TV/monitor, bird, cat, cow, dog, horse, sheep, person
+```
+
 #### Test
 * Run `python main.py --test`
 

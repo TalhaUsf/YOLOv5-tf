@@ -145,7 +145,10 @@ def write_tf_record(queue, sentinel):
 
         if file_name == sentinel:
             break
+        # read jpg image
+        # breakpoint()
         in_image = util.load_image(file_name)[:, :, ::-1]
+        # [xmin, ymin, xmax, ymax] , [class index]
         boxes, label = util.load_label(file_name)
 
         in_image, boxes = util.resize(in_image, boxes)
@@ -171,7 +174,7 @@ def write_tf_record(queue, sentinel):
         with tf.io.TFRecordWriter(os.path.join(config.data_dir, 'TF', file_name + ".tf"), opt) as writer:
             writer.write(tf_example.SerializeToString())
 
-
+@profile
 def generate_tf_record():
     if not os.path.exists(os.path.join(config.data_dir, 'TF')):
         os.makedirs(os.path.join(config.data_dir, 'TF'))
@@ -180,13 +183,17 @@ def generate_tf_record():
         for line in reader.readlines():
             file_names.append(line.rstrip().split(' ')[0])
     sentinel = ("", [])
+    # create a shared queue for all the processes
     queue = multiprocessing.Manager().Queue()
-    for file_name in tqdm.tqdm(file_names):
+    # put all the images into the queue
+    for file_name in tqdm.tqdm(file_names, desc='[INFO] preparing TF record', total=len(file_names)):
         queue.put(file_name)
+    # then put sentinel into the queue as last element to break the loop
     for _ in range(os.cpu_count()):
         queue.put(sentinel)
     print('[INFO] generating TF record')
     process_pool = []
+    # start the processes
     for i in range(os.cpu_count()):
         process = multiprocessing.Process(target=write_tf_record, args=(queue, sentinel))
         process_pool.append(process)
@@ -195,14 +202,16 @@ def generate_tf_record():
         process.join()
 
 
+
 class AnchorGenerator:
     def __init__(self, num_cluster):
         self.num_cluster = num_cluster
-
+    
     def iou(self, boxes, clusters):  # 1 box -> k clusters
+        
         n = boxes.shape[0]
         k = self.num_cluster
-
+        # breakpoint()
         box_area = boxes[:, 0] * boxes[:, 1]
         box_area = box_area.repeat(k)
         box_area = numpy.reshape(box_area, (n, k))
@@ -221,14 +230,15 @@ class AnchorGenerator:
         inter_area = numpy.multiply(min_w_matrix, min_h_matrix)
 
         return inter_area / (box_area + cluster_area - inter_area)
-
+    @profile
     def avg_iou(self, boxes, clusters):
         accuracy = numpy.mean([numpy.max(self.iou(boxes, clusters), axis=1)])
         return accuracy
-
+    @profile
     def generator(self, boxes, k, dist=numpy.median):
         box_number = boxes.shape[0]
         last_nearest = numpy.zeros((box_number,))
+        # select randomly 9 boxes and assume as clusters
         clusters = boxes[numpy.random.choice(box_number, k, replace=False)]  # init k clusters
         while True:
             distances = 1 - self.iou(boxes, clusters)
@@ -241,21 +251,28 @@ class AnchorGenerator:
             last_nearest = current_nearest
 
         return clusters
-
+    @profile
     def generate_anchor(self):
         boxes = self.get_boxes()
         result = self.generator(boxes, k=self.num_cluster)
+        # breakpoint()
         result = result[numpy.lexsort(result.T[0, None])]
+        from pathlib import Path
+        # breakpoint()
+        (Path.cwd() /'anchors.txt').write_text(str(result.tolist()))
         print("\nAnchors: \n{}".format(result))
         print("\nFitness: {:.4f}".format(self.avg_iou(boxes, result)))
-
+    
     @staticmethod
+    @profile
     def get_boxes():
         boxes = []
         file_names = [file_name[:-4] for file_name in os.listdir(os.path.join(config.data_dir, config.label_dir))]
         for file_name in file_names:
             for box in util.load_label(file_name)[0]:
                 boxes.append([box[2] - box[0], box[3] - box[1]])
+        # save all the bboxes
+        numpy.save(os.path.join(os.getcwd(), 'boxes.npy'), numpy.array(boxes))
         return numpy.array(boxes)
 
 
