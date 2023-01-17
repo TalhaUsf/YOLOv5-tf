@@ -48,6 +48,7 @@ def csp(x, filters, n, add=True):
 
 
 def build_model(training=True):
+    # select depth and with on the basis of the model selected
     depth = config.depth[config.versions.index(config.version)]
     width = config.width[config.versions.index(config.version)]
 

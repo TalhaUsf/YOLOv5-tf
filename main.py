@@ -90,7 +90,7 @@ def train():
 
     train_fn()
 
-
+@profile
 def test():
     def draw_bbox(image, boxes):
         for box in boxes:
@@ -104,6 +104,7 @@ def test():
             os.makedirs('results')
         file_names = []
         with open(os.path.join(config.data_dir, 'test.txt')) as f:
+        # with open(os.path.join(config.data_dir, 'train.txt')) as f:
             for file_name in f.readlines():
                 file_names.append(file_name.rstrip())
 
@@ -120,7 +121,7 @@ def test():
             boxes, scores, labels = model.predict(image_np[numpy.newaxis, ...])
 
             boxes, scores, labels = numpy.squeeze(boxes, 0), numpy.squeeze(scores, 0), numpy.squeeze(labels, 0)
-
+            # breakpoint()
             boxes[:, [0, 2]] = (boxes[:, [0, 2]] - dw) / scale
             boxes[:, [1, 3]] = (boxes[:, [1, 3]] - dh) / scale
             image = draw_bbox(image, boxes)

@@ -67,13 +67,16 @@ def process_box(boxes, labels):
     anchors = config.anchors
     box_centers = (boxes[:, 0:2] + boxes[:, 2:4]) / 2
     box_size = boxes[:, 2:4] - boxes[:, 0:2]
-
+    # 🔗 https://jonathan-hui.medium.com/understanding-feature-pyramid-networks-for-object-detection-fpn-45b227b9106c
+    # y_true_1 corresponds to P5
     y_true_1 = numpy.zeros((config.image_size // 32,
                             config.image_size // 32,
                             3, 5 + len(config.class_dict)), numpy.float32)
+    # y_true_1 corresponds to P4
     y_true_2 = numpy.zeros((config.image_size // 16,
                             config.image_size // 16,
                             3, 5 + len(config.class_dict)), numpy.float32)
+    # y_true_1 corresponds to P3
     y_true_3 = numpy.zeros((config.image_size // 8,
                             config.image_size // 8,
                             3, 5 + len(config.class_dict)), numpy.float32)

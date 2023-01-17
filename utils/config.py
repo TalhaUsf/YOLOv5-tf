@@ -6,9 +6,11 @@ depth = [0.33, 0.67, 1.0, 1.33]
 
 versions = ['s', 'm', 'l', 'x']
 # data_dir = os.path.join('..', 'Dataset', 'COCO')
-data_dir = os.path.join('..', 'dataset_train')
+# data_dir = os.path.join('..', 'dataset_train')
+data_dir = os.path.join('..', 'dataset_validation')
 
-threshold = 0.3
+# threshold = 0.3
+threshold = 0.9
 max_boxes = 150
 # image_dir = 'images'
 image_dir = 'data'
