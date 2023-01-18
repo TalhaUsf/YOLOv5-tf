@@ -5,6 +5,8 @@ import numpy as np
 import os
 import xml.etree.ElementTree
 from rich.console import Console
+from typing import List
+from tqdm import tqdm
 
 #%%
 
@@ -18,6 +20,7 @@ from rich.console import Console
 class MixinAnchorGenerator:
     # doesnot have an initializer because it must be used as a mixin
 
+    # ☠️this should be called for setting the private attributes of this class
     def _get_info_for_generating_anchors(self,
                                          data_dir: str,
                                          class_dict: dict,
@@ -129,6 +132,42 @@ class MixinAnchorGenerator:
         np.save(os.path.join(os.getcwd(), 'boxes.npy'), np.array(boxes))
         return np.array(boxes)
 
+    def class2idx(self, file_names : List[str]):
+        '''
+        takes a list of strings of the xml files and makes a dictionary mapping class names to the integer labels
+        calling this method will also assign a class attribute `self.class_dict` to the class object. This must be called 
+        for getting the class mapping.
+        
+        
+        
+        Parameters
+        ----------
+        file_names : List[str]
+            just the name (without extension) of the xml file. for example if the file name is 'a.xml' then just pass 'a' as the argument ['a']
+
+        Returns
+        -------
+        self
+        '''
+        class2idx = []
+        # loop over all the xml files
+        for file_name in tqdm(file_names, desc='[class2idx] generating ...', total=len(file_names), colour='green'):        
+            path = os.path.join(self.data_dir, "labels", file_name + '.xml')
+            root = xml.etree.ElementTree.parse(path).getroot()
+
+            # loop over all the objects in this xml file
+            for element in root.iter('object'):
+                
+                
+                class2idx.append(element.find('name').text)
+        
+        # find unique elements and make a dictionary 
+        self.class_dict = {name:idx for idx, name in enumerate(list(set(class2idx)))}
+        Console().log(f"[Anchor Generator] class_dict generated ....\n {self.class_dict}", justify='left', highlight=True)    
+        
+        return self
+    
+    
     def load_label(self, file_name):
         path = os.path.join(self.data_dir, "labels", file_name + '.xml')
         root = xml.etree.ElementTree.parse(path).getroot()
@@ -235,7 +274,7 @@ class IYoloFamily:
 
 
 # Concrete model maker class
-class Yolo(IYoloFamily):
+class Yolo(MixinAnchorGenerator, IYoloFamily): # mixin should be inherited ist because constructor of IYoloFamily needs to be used by Yolo
 
     # override the method and change the arguments
     def build_model(self, version: str, n_classes: int, training: bool):
@@ -334,7 +373,33 @@ def construct_model(cls, version: str, n_classes: int, is_training: bool) -> IYo
     IYoloFamily
         yolo family of models
     '''
+    # get instance of the concrete class Yolo
     model_class = cls()
+    # If anchors need to be generated
+    model_class._get_info_for_generating_anchors(data_dir="../dataset_validation/",
+                                         class_dict= {                                                                                                                        
+                                                                        'aeroplane': 0,                                                                                                      
+                                                                        'bicycle': 1,                                                                                                        
+                                                                        'bird': 2,                                                                                                           
+                                                                        'boat': 3,                                                                                                           
+                                                                        'bottle': 4,                                                                                                         
+                                                                        'bus': 5,                                                                                                            
+                                                                        'car': 6,                                                                                                            
+                                                                        'cat': 7,                                                                                                            
+                                                                        'chair': 8,                                                                                                          
+                                                                        'cow': 9,                                                                                                            
+                                                                        'diningtable': 10,                                                                                                   
+                                                                        'dog': 11,                                                                                                           
+                                                                        'horse': 12,                                                                                                         
+                                                                        'motorbike': 13,                                                                                                     
+                                                                        'person': 14,                                                                                                        
+                                                                        'pottedplant': 15,                                                                                                   
+                                                                        'sheep': 16,                                                                                                         
+                                                                        'sofa': 17,                                                                                                          
+                                                                        'train': 18,                                                                                                         
+                                                                        'tvmonitor': 19                                                                                                      
+                                                                    }
+                                         ).generate_anchor()
     model = model_class.build_model(
         version=version, n_classes=n_classes, training=is_training)
 
