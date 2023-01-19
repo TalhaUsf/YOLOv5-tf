@@ -14,10 +14,11 @@ from typing import List, Optional, Tuple, Union
 class IDataloader:
     def __init__(self,
                  data_dir : str,
+                 anchors : np.ndarray,
                  ):
         self.data_dir = data_dir
         self.image_size = 640
-        # self.anchors will be assigned by the Mixin
+        self.anchors = anchors
         # self.class_dict will be assigned by the Mixin 
 
     def write_image_files(self):
@@ -58,7 +59,7 @@ class IDataloader:
         # # --------------------------------------------------------------------------
         self.get_class_mapping(file_names)
         # breakpoint()
-        # assert hasattr(self, 'class_dict'), "class_dict attribute not found, call `get_class_mapping` method first"
+        assert hasattr(self, 'class_dict'), "class_dict attribute not found, call `get_class_mapping` method first"
         Console().log(f"➡️\tgot class mapping for dataset\n\n{self.class_dict}")
         
         # # create a shared queue for all the processes
@@ -268,15 +269,9 @@ class IDataloader:
         anchors_mask = [[6, 7, 8],
                         [3, 4, 5],
                         [0, 1, 2]]
-        anchor_generator = IDataloader.MixinAnchorGenerator()._get_info_for_generating_anchors(data_dir=self.data_dir,
-                                            class_dict=self.class_dict,
-                                            num_cluster=9)
-        anchor_generator.generate_anchor()
-        anchors = anchor_generator.anchors
-        self.anchors = anchors
         assert hasattr(self, 'anchors'), "anchors attribute not found"
-        # self.anchors = anchors
-        # assert hasattr(self, 'anchors'), "anchors attribute not found"
+        anchors = self.anchors
+        
         # Console().log(f"➡️\tanchors attribute generated \n\n {self.anchors}")
         # after above line the self.anchors attribute will be available
         
@@ -329,184 +324,216 @@ class IDataloader:
         return y_true_1, y_true_2, y_true_3 # P5, P4, P3
         
 
+
+#%%
+# # --------------------------------------------------------------------------
+# #                            🔥 anchor generator                        
+# # --------------------------------------------------------------------------
+class MixinAnchorGenerator:
+    '''
+    class for generating anchors
+
+
+    Example
+    -------
+    >>> gen = MixinAnchorGenerator()._get_info_for_generating_anchors(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_train")
+    >>> gen.generate_anchor()
+    >>> gen.anchors
+    array([[ 17.,  21.],
+       [ 24.,  51.],
+       [ 41., 101.],
+       [ 45.,  30.],
+       [ 73.,  60.],
+       [ 94., 127.],
+       [142., 243.],
+       [231., 138.],
+       [341., 299.]], dtype=float32)
+    '''
+    # doesnot have an initializer because it must be used as a mixin
+
+    # ☠️this should be called for setting the private attributes of this class
+    def _get_info_for_generating_anchors(self,
+                                        data_dir: str,
+                                        num_cluster: int = 9):
+        '''
+        This method sets attributes of this mixin class that are required for generating anchors sub-sequently
+
+        Parameters
+        ----------
+        num_cluster : int , optional
+            Number of clusters , 9 by default. There are 3 scales of prediction with each scale associated
+            with 3 anchor boxes this makes it a total of 9 anchor boxes
+        data_dir : str
+            directory which contains dataset in PascalVOC format, it must have `data` and `labels` directories
+        '''        
+
+        self.num_cluster = num_cluster
+        self.data_dir = data_dir
+        
+        
+        return self
+
+    def iou(self, boxes, clusters):  # 1 box -> k clusters
+
+        n = boxes.shape[0]
+        k = self.num_cluster
+        # breakpoint()
+        box_area = boxes[:, 0] * boxes[:, 1]
+        box_area = box_area.repeat(k)
+        box_area = np.reshape(box_area, (n, k))
+
+        cluster_area = clusters[:, 0] * clusters[:, 1]
+        cluster_area = np.tile(cluster_area, [1, n])
+        cluster_area = np.reshape(cluster_area, (n, k))
+
+        box_w_matrix = np.reshape(boxes[:, 0].repeat(k), (n, k))
+        cluster_w_matrix = np.reshape(np.tile(clusters[:, 0], (1, n)), (n, k))
+        min_w_matrix = np.minimum(cluster_w_matrix, box_w_matrix)
+
+        box_h_matrix = np.reshape(boxes[:, 1].repeat(k), (n, k))
+        cluster_h_matrix = np.reshape(np.tile(clusters[:, 1], (1, n)), (n, k))
+        min_h_matrix = np.minimum(cluster_h_matrix, box_h_matrix)
+        inter_area = np.multiply(min_w_matrix, min_h_matrix)
+
+        return inter_area / (box_area + cluster_area - inter_area)
+
+    def avg_iou(self, boxes, clusters):
+        accuracy = np.mean([np.max(self.iou(boxes, clusters), axis=1)])
+        return accuracy
+
+    def generator(self, boxes, k, dist=np.median):
     
-    # # --------------------------------------------------------------------------
-    # #                            🔥 anchor generator                        
-    # # --------------------------------------------------------------------------
-    class MixinAnchorGenerator:
-        # doesnot have an initializer because it must be used as a mixin
+        box_number = boxes.shape[0]
+        last_nearest = np.zeros((box_number,))
+        # select randomly 9 boxes and assume as clusters
+        clusters = boxes[np.random.choice(
+            box_number, k, replace=False)]  # init k clusters
+        while True:
+            distances = 1 - self.iou(boxes, clusters)
 
-        # ☠️this should be called for setting the private attributes of this class
-        def _get_info_for_generating_anchors(self,
-                                            data_dir: str,
-                                            class_dict: dict,
-                                            num_cluster: int = 9):
-            '''
-            This method sets attributes of this mixin class that are required for generating anchors sub-sequently
+            current_nearest = np.argmin(distances, axis=1)
+            if (last_nearest == current_nearest).all():
+                break  # clusters won't change
+            for cluster in range(k):
+                clusters[cluster] = dist(
+                    boxes[current_nearest == cluster], axis=0)
+            last_nearest = current_nearest
 
-            Parameters
-            ----------
-            num_cluster : int , optional
-                Number of clusters , 9 by default. There are 3 scales of prediction with each scale associated
-                with 3 anchor boxes this makes it a total of 9 anchor boxes
-            data_dir : str
-                directory which contains dataset in PascalVOC format, it must have `data` and `labels` directories
-            class_dict : dict
-                dictionary with keys as class names and values as class ids integers
-            '''        
+        return clusters
 
-            self.num_cluster = num_cluster
-            self.data_dir = data_dir
-            self.class_dict = class_dict
-            
-            return self
-
-        def iou(self, boxes, clusters):  # 1 box -> k clusters
-
-            n = boxes.shape[0]
-            k = self.num_cluster
-            # breakpoint()
-            box_area = boxes[:, 0] * boxes[:, 1]
-            box_area = box_area.repeat(k)
-            box_area = np.reshape(box_area, (n, k))
-
-            cluster_area = clusters[:, 0] * clusters[:, 1]
-            cluster_area = np.tile(cluster_area, [1, n])
-            cluster_area = np.reshape(cluster_area, (n, k))
-
-            box_w_matrix = np.reshape(boxes[:, 0].repeat(k), (n, k))
-            cluster_w_matrix = np.reshape(np.tile(clusters[:, 0], (1, n)), (n, k))
-            min_w_matrix = np.minimum(cluster_w_matrix, box_w_matrix)
-
-            box_h_matrix = np.reshape(boxes[:, 1].repeat(k), (n, k))
-            cluster_h_matrix = np.reshape(np.tile(clusters[:, 1], (1, n)), (n, k))
-            min_h_matrix = np.minimum(cluster_h_matrix, box_h_matrix)
-            inter_area = np.multiply(min_w_matrix, min_h_matrix)
-
-            return inter_area / (box_area + cluster_area - inter_area)
-
-        def avg_iou(self, boxes, clusters):
-            accuracy = np.mean([np.max(self.iou(boxes, clusters), axis=1)])
-            return accuracy
-
-        def generator(self, boxes, k, dist=np.median):
+    def generate_anchor(self):
+        '''
+        🟦 This is the method that needs to be called for starting the calculation of anchor boxes
         
-            box_number = boxes.shape[0]
-            last_nearest = np.zeros((box_number,))
-            # select randomly 9 boxes and assume as clusters
-            clusters = boxes[np.random.choice(
-                box_number, k, replace=False)]  # init k clusters
-            while True:
-                distances = 1 - self.iou(boxes, clusters)
+        Examples
+        --------
+        If this class is to be used as standalone class then it can be used as follows: 
 
-                current_nearest = np.argmin(distances, axis=1)
-                if (last_nearest == current_nearest).all():
-                    break  # clusters won't change
-                for cluster in range(k):
-                    clusters[cluster] = dist(
-                        boxes[current_nearest == cluster], axis=0)
-                last_nearest = current_nearest
+        >>> MixinAnchorGenerator()._get_info_for_generating_anchors(data_dir = 'a/b/c',
+                                        num_cluster = 9).generate_anchor()
+        [17:40:32] ➡️[Anchor Generator] boxes generated
+        [17:40:32] ➡️[Anchor Generator] Clusters calculated  
+        
+        '''        
+        boxes = self.get_boxes()
+        Console().log(f"➡️[Anchor Generator] boxes generated", justify='left', highlight=True)
+        result = self.generator(boxes, k=self.num_cluster)
+        Console().log(f"➡️[Anchor Generator] Clusters calculated", justify='left', highlight=True)
+        # breakpoint()
+        result = result[np.lexsort(result.T[0, None])]
+        from pathlib import Path
+        self.anchors = result
+        (Path.cwd() / 'anchors.txt').write_text(str(result.tolist()))
+        Console().log(f"➡️[Anchor Generator] anchors written to {(Path.cwd() / 'anchors.txt').as_posix()}", justify='left', highlight=True)
+        Console().log(f"🔥Anchors : \n{result.tolist()}", style="bold green")
+        Console().log(f"🔥Fitness: \n{self.avg_iou(boxes, result)}")
 
-            return clusters
+    def get_boxes(self,):
+        boxes = []
+        file_names = [file_name[:-4]
+                    for file_name in os.listdir(os.path.join(self.data_dir, "labels"))]
+        
+        # 🔴 set the class attribute `self.class_dict` to the class object
+        # self.class2idx(file_names)
+        for file_name in file_names:
+            for box in self.load_label(file_name)[0]:
+                boxes.append([box[2] - box[0], box[3] - box[1]])
+        # save all the bboxes
+        np.save(os.path.join(os.getcwd(), 'boxes.npy'), np.array(boxes))
+        return np.array(boxes)
 
-        def generate_anchor(self):
-            '''
-            🟦 This is the method that needs to be called for starting the calculation of anchor boxes
-            
-            Examples
-            --------
-            If this class is to be used as standalone class then it can be used as follows: 
-
-            >>> MixinAnchorGenerator()._get_info_for_generating_anchors(data_dir = 'a/b/c',
-                                            num_cluster = 9).generate_anchor()
-            [17:40:32] ➡️[Anchor Generator] boxes generated
-            [17:40:32] ➡️[Anchor Generator] Clusters calculated  
-            
-            '''        
-            boxes = self.get_boxes()
-            Console().log(f"➡️[Anchor Generator] boxes generated", justify='left', highlight=True)
-            result = self.generator(boxes, k=self.num_cluster)
-            Console().log(f"➡️[Anchor Generator] Clusters calculated", justify='left', highlight=True)
-            # breakpoint()
-            result = result[np.lexsort(result.T[0, None])]
-            from pathlib import Path
-            self.anchors = result
-            (Path.cwd() / 'anchors.txt').write_text(str(result.tolist()))
-            Console().log(f"➡️[Anchor Generator] anchors written to {(Path.cwd() / 'anchors.txt').as_posix()}", justify='left', highlight=True)
-            Console().log(f"🔥Anchors : \n{result.tolist()}", style="bold green")
-            Console().log(f"🔥Fitness: \n{self.avg_iou(boxes, result)}")
-
-        def get_boxes(self,):
-            boxes = []
-            file_names = [file_name[:-4]
-                        for file_name in os.listdir(os.path.join(self.data_dir, "labels"))]
-            
-            # 🔴 set the class attribute `self.class_dict` to the class object
-            # self.class2idx(file_names)
-            for file_name in file_names:
-                for box in self.load_label(file_name)[0]:
-                    boxes.append([box[2] - box[0], box[3] - box[1]])
-            # save all the bboxes
-            np.save(os.path.join(os.getcwd(), 'boxes.npy'), np.array(boxes))
-            return np.array(boxes)
-
-        # def class2idx(self, file_names : List[str]):
-        #     '''
-        #     takes a list of strings of the xml files and makes a dictionary mapping class names to the integer labels
-        #     calling this method will also assign a class attribute `self.class_dict` to the class object. This must be called 
-        #     for getting the class mapping.
-        #     This must be called ist
-            
-            
-        #     Parameters
-        #     ----------
-        #     file_names : List[str]
-        #         just the name (without extension) of the xml file. for example if the file name is 'a.xml' then just pass 'a' as the argument ['a']
-
-        #     Returns
-        #     -------
-        #     self
-        #     '''
-        #     class2idx = []
-        #     # loop over all the xml files
-        #     for file_name in tqdm(file_names, desc='[class2idx] generating ...', total=len(file_names), colour='green'):        
-        #         path = os.path.join(self.data_dir, "labels", file_name + '.xml')
-        #         root = xml.etree.ElementTree.parse(path).getroot()
-
-        #         # loop over all the objects in this xml file
-        #         for element in root.iter('object'):
-                    
-                    
-        #             class2idx.append(element.find('name').text)
-            
-        #     # find unique elements and make a dictionary 
-        #     self.class_dict = {name:idx for idx, name in enumerate(list(set(class2idx)))}
-        #     Console().log(f"[Anchor Generator] class_dict generated ....\n {self.class_dict}", justify='left', highlight=True)    
-            
-            
+    # def class2idx(self, file_names : List[str]):
+    #     '''
+    #     takes a list of strings of the xml files and makes a dictionary mapping class names to the integer labels
+    #     calling this method will also assign a class attribute `self.class_dict` to the class object. This must be called 
+    #     for getting the class mapping.
+    #     This must be called ist
         
         
-        def load_label(self, file_name):
-            path = os.path.join(self.data_dir, "labels", file_name + '.xml')
-            root = xml.etree.ElementTree.parse(path).getroot()
+    #     Parameters
+    #     ----------
+    #     file_names : List[str]
+    #         just the name (without extension) of the xml file. for example if the file name is 'a.xml' then just pass 'a' as the argument ['a']
 
-            boxes = []
-            labels = []
-            for element in root.iter('object'):
-                x_min = float(element.find('bndbox').find('xmin').text)
-                y_min = float(element.find('bndbox').find('ymin').text)
-                x_max = float(element.find('bndbox').find('xmax').text)
-                y_max = float(element.find('bndbox').find('ymax').text)
+    #     Returns
+    #     -------
+    #     self
+    #     '''
+    #     class2idx = []
+    #     # loop over all the xml files
+    #     for file_name in tqdm(file_names, desc='[class2idx] generating ...', total=len(file_names), colour='green'):        
+    #         path = os.path.join(self.data_dir, "labels", file_name + '.xml')
+    #         root = xml.etree.ElementTree.parse(path).getroot()
 
-                boxes.append([x_min, y_min, x_max, y_max])
-                # integer labels populating
-                labels.append(self.class_dict[element.find('name').text])
-            boxes = np.asarray(boxes, np.float32)
-            labels = np.asarray(labels, np.int32)
-            return boxes, labels
+    #         # loop over all the objects in this xml file
+    #         for element in root.iter('object'):
+                
+                
+    #             class2idx.append(element.find('name').text)
+        
+    #     # find unique elements and make a dictionary 
+    #     self.class_dict = {name:idx for idx, name in enumerate(list(set(class2idx)))}
+    #     Console().log(f"[Anchor Generator] class_dict generated ....\n {self.class_dict}", justify='left', highlight=True)    
+        
+        
+    
+    
+    def load_label(self, file_name):
+        path = os.path.join(self.data_dir, "labels", file_name + '.xml')
+        root = xml.etree.ElementTree.parse(path).getroot()
+
+        boxes = []
+        # labels = []
+        for element in root.iter('object'):
+            x_min = float(element.find('bndbox').find('xmin').text)
+            y_min = float(element.find('bndbox').find('ymin').text)
+            x_max = float(element.find('bndbox').find('xmax').text)
+            y_max = float(element.find('bndbox').find('ymax').text)
+
+            boxes.append([x_min, y_min, x_max, y_max])
+            # integer labels populating
+            # labels.append(self.class_dict[element.find('name').text])
+        boxes = np.asarray(boxes, np.float32)
+        # labels = np.asarray(labels, np.int32)
+        return boxes, None
 
 
     
 
 
 # %%
+
+
+if __name__ == "__main__":
+    # generate anchors before loading datalaoder
+    # because the same dataloader will be used for generating ground truth
+    gen = MixinAnchorGenerator()._get_info_for_generating_anchors(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_validation")
+    gen.generate_anchor()
+    anchors = gen.anchors
+    
+    # generate train / test dataset files
+    a = IDataloader(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_validation",
+                    anchors=anchors).write_image_files()
+
+    a.yolo_generate_tf_record()
+    class_dict = a.class_dict

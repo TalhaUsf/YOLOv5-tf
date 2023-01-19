@@ -154,22 +154,24 @@ class Predict(tf.keras.layers.Layer):
         return [boxes, scores, labels]
 
 
-prediction_layer = Predict(
-                np.array([[17.0, 21.0], [24.0, 51.0], [41.0, 100.0], 
-                       [45.0, 31.0], [75.0, 61.0], [94.0, 129.0], 
-                       [143.0, 245.0], [232.0, 138.0], [342.0, 299.0]], np.float32),
-                640,
-                20,
-                150
-                )
+if __name__ == "__main__":
 
-pred1 = tf.random.normal(
-    shape=[1, 20, 20, 3, 25], mean=0.0, stddev=1.0, dtype=tf.float32)
-pred2 = tf.random.normal(
-    shape=[1, 40, 40, 3, 25], mean=0.0, stddev=1.0, dtype=tf.float32)
-pred3 = tf.random.normal(
-    shape=[1, 80, 80, 3, 25], mean=0.0, stddev=1.0, dtype=tf.float32)
+    prediction_layer = Predict(
+                    np.array([[17.0, 21.0], [24.0, 51.0], [41.0, 100.0], 
+                        [45.0, 31.0], [75.0, 61.0], [94.0, 129.0], 
+                        [143.0, 245.0], [232.0, 138.0], [342.0, 299.0]], np.float32),
+                    640,
+                    20,
+                    150
+                    )
 
-pred = [pred1, pred2, pred3]
-out = prediction_layer(pred)
-Console().log(out)
+    pred1 = tf.random.normal(
+        shape=[1, 20, 20, 3, 25], mean=0.0, stddev=1.0, dtype=tf.float32)
+    pred2 = tf.random.normal(
+        shape=[1, 40, 40, 3, 25], mean=0.0, stddev=1.0, dtype=tf.float32)
+    pred3 = tf.random.normal(
+        shape=[1, 80, 80, 3, 25], mean=0.0, stddev=1.0, dtype=tf.float32)
+
+    pred = [pred1, pred2, pred3]
+    out = prediction_layer(pred)
+    Console().log(out)

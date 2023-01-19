@@ -17,176 +17,6 @@ from tqdm import tqdm
 # ==========================================================================
 
 
-class MixinAnchorGenerator:
-    # doesnot have an initializer because it must be used as a mixin
-
-    # ☠️this should be called for setting the private attributes of this class
-    def _get_info_for_generating_anchors(self,
-                                         data_dir: str,
-                                         class_dict: dict,
-                                         num_cluster: int = 9):
-        '''
-        This method sets attributes of this mixin class that are required for generating anchors sub-sequently
-
-        Parameters
-        ----------
-        num_cluster : int , optional
-            Number of clusters , 9 by default. There are 3 scales of prediction with each scale associated
-            with 3 anchor boxes this makes it a total of 9 anchor boxes
-        data_dir : str
-            directory which contains dataset in PascalVOC format, it must have `data` and `labels` directories
-        class_dict : dict
-            dictionary with keys as class names and values as class ids integers
-        '''        
-
-        self.num_cluster = num_cluster
-        self.data_dir = data_dir
-        self.class_dict = class_dict
-        
-        return self
-
-    def iou(self, boxes, clusters):  # 1 box -> k clusters
-
-        n = boxes.shape[0]
-        k = self.num_cluster
-        # breakpoint()
-        box_area = boxes[:, 0] * boxes[:, 1]
-        box_area = box_area.repeat(k)
-        box_area = np.reshape(box_area, (n, k))
-
-        cluster_area = clusters[:, 0] * clusters[:, 1]
-        cluster_area = np.tile(cluster_area, [1, n])
-        cluster_area = np.reshape(cluster_area, (n, k))
-
-        box_w_matrix = np.reshape(boxes[:, 0].repeat(k), (n, k))
-        cluster_w_matrix = np.reshape(np.tile(clusters[:, 0], (1, n)), (n, k))
-        min_w_matrix = np.minimum(cluster_w_matrix, box_w_matrix)
-
-        box_h_matrix = np.reshape(boxes[:, 1].repeat(k), (n, k))
-        cluster_h_matrix = np.reshape(np.tile(clusters[:, 1], (1, n)), (n, k))
-        min_h_matrix = np.minimum(cluster_h_matrix, box_h_matrix)
-        inter_area = np.multiply(min_w_matrix, min_h_matrix)
-
-        return inter_area / (box_area + cluster_area - inter_area)
-
-    def avg_iou(self, boxes, clusters):
-        accuracy = np.mean([np.max(self.iou(boxes, clusters), axis=1)])
-        return accuracy
-
-    def generator(self, boxes, k, dist=np.median):
-    
-        box_number = boxes.shape[0]
-        last_nearest = np.zeros((box_number,))
-        # select randomly 9 boxes and assume as clusters
-        clusters = boxes[np.random.choice(
-            box_number, k, replace=False)]  # init k clusters
-        while True:
-            distances = 1 - self.iou(boxes, clusters)
-
-            current_nearest = np.argmin(distances, axis=1)
-            if (last_nearest == current_nearest).all():
-                break  # clusters won't change
-            for cluster in range(k):
-                clusters[cluster] = dist(
-                    boxes[current_nearest == cluster], axis=0)
-            last_nearest = current_nearest
-
-        return clusters
-
-    def generate_anchor(self):
-        '''
-        🟦 This is the method that needs to be called for starting the calculation of anchor boxes
-        
-        Examples
-        --------
-        If this class is to be used as standalone class then it can be used as follows: 
-
-        >>> MixinAnchorGenerator()._get_info_for_generating_anchors(data_dir = 'a/b/c',
-                                         class_dict = {'a' : 0, 'b' : 1},
-                                         num_cluster = 9).generate_anchor()
-        [17:40:32] ➡️[Anchor Generator] boxes generated
-        [17:40:32] ➡️[Anchor Generator] Clusters calculated  
-        
-        '''        
-        boxes = self.get_boxes()
-        Console().log(f"➡️[Anchor Generator] boxes generated", justify='left', highlight=True)
-        result = self.generator(boxes, k=self.num_cluster)
-        Console().log(f"➡️[Anchor Generator] Clusters calculated", justify='left', highlight=True)
-        # breakpoint()
-        result = result[np.lexsort(result.T[0, None])]
-        from pathlib import Path
-        # breakpoint()
-        (Path.cwd() / 'anchors.txt').write_text(str(result.tolist()))
-        Console().log(f"➡️[Anchor Generator] anchors written to {(Path.cwd() / 'anchors.txt').as_posix()}", justify='left', highlight=True)
-        Console().log(f"🔥Anchors : \n{result.tolist()}", style="bold green")
-        Console().log(f"🔥Fitness: \n{self.avg_iou(boxes, result)}")
-
-    def get_boxes(self,):
-        boxes = []
-        file_names = [file_name[:-4]
-                      for file_name in os.listdir(os.path.join(self.data_dir, "labels"))]
-        for file_name in file_names:
-            for box in self.load_label(file_name)[0]:
-                boxes.append([box[2] - box[0], box[3] - box[1]])
-        # save all the bboxes
-        np.save(os.path.join(os.getcwd(), 'boxes.npy'), np.array(boxes))
-        return np.array(boxes)
-
-    def class2idx(self, file_names : List[str]):
-        '''
-        takes a list of strings of the xml files and makes a dictionary mapping class names to the integer labels
-        calling this method will also assign a class attribute `self.class_dict` to the class object. This must be called 
-        for getting the class mapping.
-        
-        
-        
-        Parameters
-        ----------
-        file_names : List[str]
-            just the name (without extension) of the xml file. for example if the file name is 'a.xml' then just pass 'a' as the argument ['a']
-
-        Returns
-        -------
-        self
-        '''
-        class2idx = []
-        # loop over all the xml files
-        for file_name in tqdm(file_names, desc='[class2idx] generating ...', total=len(file_names), colour='green'):        
-            path = os.path.join(self.data_dir, "labels", file_name + '.xml')
-            root = xml.etree.ElementTree.parse(path).getroot()
-
-            # loop over all the objects in this xml file
-            for element in root.iter('object'):
-                
-                
-                class2idx.append(element.find('name').text)
-        
-        # find unique elements and make a dictionary 
-        self.class_dict = {name:idx for idx, name in enumerate(list(set(class2idx)))}
-        Console().log(f"[Anchor Generator] class_dict generated ....\n {self.class_dict}", justify='left', highlight=True)    
-        
-        return self
-    
-    
-    def load_label(self, file_name):
-        path = os.path.join(self.data_dir, "labels", file_name + '.xml')
-        root = xml.etree.ElementTree.parse(path).getroot()
-
-        boxes = []
-        labels = []
-        for element in root.iter('object'):
-            x_min = float(element.find('bndbox').find('xmin').text)
-            y_min = float(element.find('bndbox').find('ymin').text)
-            x_max = float(element.find('bndbox').find('xmax').text)
-            y_max = float(element.find('bndbox').find('ymax').text)
-
-            boxes.append([x_min, y_min, x_max, y_max])
-            # integer labels populating
-            labels.append(self.class_dict[element.find('name').text])
-        boxes = np.asarray(boxes, np.float32)
-        labels = np.asarray(labels, np.int32)
-        return boxes, labels
-
 
 # %%
 
@@ -203,10 +33,10 @@ class IYoloFamily:
         # following will be set later
         self.class_dict = None
         version = None
-        # anchor boxes computed over the dataset
-        self.anchors = np.array([[17.0, 21.0], [24.0, 51.0], [41.0, 100.0],
-                                 [45.0, 31.0], [75.0, 61.0], [94.0, 129.0],
-                                 [143.0, 245.0], [232.0, 138.0], [342.0, 299.0]], np.float32)
+        # anchor boxes computed over the dataset , these will be computed at runtime
+        # self.anchors = np.array([[17.0, 21.0], [24.0, 51.0], [41.0, 100.0],
+        #                          [45.0, 31.0], [75.0, 61.0], [94.0, 129.0],
+        #                          [143.0, 245.0], [232.0, 138.0], [342.0, 299.0]], np.float32)
         self.max_boxes = 150
         self.versions = ['s', 'm', 'l', 'x']
         self.width = [0.50, 0.75, 1.0, 1.25]
@@ -274,14 +104,56 @@ class IYoloFamily:
 
 
 # Concrete model maker class
-class Yolo(MixinAnchorGenerator, IYoloFamily): # mixin should be inherited ist because constructor of IYoloFamily needs to be used by Yolo
+class Yolo(IYoloFamily):
 
     # override the method and change the arguments
-    def build_model(self, version: str, n_classes: int, training: bool):
-        self.class_dict = n_classes
+    def build_model(self, 
+                    version: str, 
+                    n_classes: int, 
+                    anchors : np.ndarray,
+                    training: bool = True):
+        '''
+        overridden method for building the model, model building generally is done after dataloder is created because
+        no. of classes is needed for building the model. So it assumes that a dictionary mapping for class names to integer 
+        labels is already created and n_classes is known.
+        
+        Such mapping should come from the dataloader. This method will only build different variants of the yolo family model
+        
+        ⚠️ Here is the order of execution:
+        1) Anchor generation (will output anchor boxes)
+        2) Dataloader creation (will output class labels to integer mapping and will also need anchors generation in above step)
+        3) Model building (will need class labels to integer mapping and anchors generation in above steps)
+        
+        
+        Note
+        ------
+        ☠️ class labels to integer mapping should be consistent throughout training process. If such mapping is calculated inside model building
+        method then it will be different everytime model is built and it will lead to inconsistency in training and testing process.
+
+
+        Parameters
+        ----------
+        version : str
+            can be 's', 'm', 'l', 'x'
+        n_classes : int
+            total no. of classes in the dataset
+        anchors : np.ndarray, optional
+            anchor boxes for the dataset, (default computed on VOC) 
+        training : bool
+            can be True or False, if True then it will predict feature maps at 3 scales, otherwise it will attach post-processing (NMS) layer at the end
+
+        Returns
+        -------
+        IYoloFamily
+            
+        '''        
+        self.n_classes = n_classes
         self.version_selected = version
+        # following is needed for post-processing in case of evaluation mode
+        self.anchors = anchors
         # select depth and with on the basis of the model selected
 
+        
         depth = self.depth[self.versions.index(version)]
         width = self.width[self.versions.index(version)]
 
@@ -325,21 +197,21 @@ class Yolo(MixinAnchorGenerator, IYoloFamily): # mixin should be inherited ist b
         x = tf.keras.layers.concatenate([x, x1])
         x = self.csp(x, int(round(width * 256)), int(round(depth * 3)), False)
         # ⚠️ P3 --> image_size // 8
-        p3 = tf.keras.layers.Conv2D(3 * (self.class_dict + 5), 1, name=f'p3_{self.image_size//8}x{self.image_size//8}x3x{self.class_dict+5}',
+        p3 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p3_{self.image_size//8}x{self.image_size//8}x3x{self.n_classes+5}',
                                     kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
 
         x = self.conv(x, int(round(width * 256)), 3, 2)
         x = tf.keras.layers.concatenate([x, x4])
         x = self.csp(x, int(round(width * 512)), int(round(depth * 3)), False)
         # ⚠️ P4 --> image_size // 16
-        p4 = tf.keras.layers.Conv2D(3 * (self.class_dict + 5), 1, name=f'p4_{self.image_size//16}x{self.image_size//16}x3x{self.class_dict+5}',
+        p4 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p4_{self.image_size//16}x{self.image_size//16}x3x{self.n_classes+5}',
                                     kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
 
         x = self.conv(x, int(round(width * 512)), 3, 2)
         x = tf.keras.layers.concatenate([x, x3])
         x = self.csp(x, int(round(width * 1024)), int(round(depth * 3)), False)
         # ⚠️ P5 --> self.image_size // 32
-        p5 = tf.keras.layers.Conv2D(3 * (self.class_dict + 5), 1, name=f'p5_{self.image_size//32}x{self.image_size//32}x3x{self.class_dict+5}',
+        p5 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p5_{self.image_size//32}x{self.image_size//32}x3x{self.n_classes+5}',
                                     kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
 
         # ==========================================================================
@@ -350,12 +222,16 @@ class Yolo(MixinAnchorGenerator, IYoloFamily): # mixin should be inherited ist b
             return tf.keras.Model(inputs, [p5, p4, p3])
         else:
             # ⚡ in inference model the NMS layer will be made a part of the model, the last prediction layer will hold no learnable parameters
-            return tf.keras.Model(inputs, Predict(anchors=self.anchors, image_size=self.image_size, n_classes=self.class_dict, max_boxes=self.max_boxes)([p5, p4, p3]))
+            return tf.keras.Model(inputs, Predict(anchors=self.anchors, image_size=self.image_size, n_classes=self.n_classes, max_boxes=self.max_boxes)([p5, p4, p3]))
 
 
 # common function to construct the model
 
-def construct_model(cls, version: str, n_classes: int, is_training: bool) -> IYoloFamily:
+def construct_model(cls, 
+                    version: str, 
+                    class_dict : dict, 
+                    anchors : np.ndarray = np.array([[19.0, 25.0], [29.0, 61.0], [51.0, 104.0], [58.0, 40.0], [97.0, 179.0], [110.0, 89.0], [179.0, 268.0], [240.0, 143.0], [372.0, 298.0]]), 
+                    is_training: bool = True) -> IYoloFamily:
     '''
     this function will be used to build all variants of the yolo family of models
 
@@ -365,6 +241,8 @@ def construct_model(cls, version: str, n_classes: int, is_training: bool) -> IYo
         can be one of the following: 's', 'm', 'l', 'x'
     n_classes : int
         number of classes in the dataset
+    anchors : np.ndarray
+        [9, 2] should be the shape of the array, if not provided default anchors calculated on VOC will be used.
     is_training : bool
         if training mode, set it to True otherwise False
 
@@ -376,39 +254,46 @@ def construct_model(cls, version: str, n_classes: int, is_training: bool) -> IYo
     # get instance of the concrete class Yolo
     model_class = cls()
     # If anchors need to be generated
-    model_class._get_info_for_generating_anchors(data_dir="../dataset_validation/",
-                                         class_dict= {                                                                                                                        
-                                                                        'aeroplane': 0,                                                                                                      
-                                                                        'bicycle': 1,                                                                                                        
-                                                                        'bird': 2,                                                                                                           
-                                                                        'boat': 3,                                                                                                           
-                                                                        'bottle': 4,                                                                                                         
-                                                                        'bus': 5,                                                                                                            
-                                                                        'car': 6,                                                                                                            
-                                                                        'cat': 7,                                                                                                            
-                                                                        'chair': 8,                                                                                                          
-                                                                        'cow': 9,                                                                                                            
-                                                                        'diningtable': 10,                                                                                                   
-                                                                        'dog': 11,                                                                                                           
-                                                                        'horse': 12,                                                                                                         
-                                                                        'motorbike': 13,                                                                                                     
-                                                                        'person': 14,                                                                                                        
-                                                                        'pottedplant': 15,                                                                                                   
-                                                                        'sheep': 16,                                                                                                         
-                                                                        'sofa': 17,                                                                                                          
-                                                                        'train': 18,                                                                                                         
-                                                                        'tvmonitor': 19                                                                                                      
-                                                                    }
-                                         ).generate_anchor()
+    # model_class._get_info_for_generating_anchors(data_dir="../dataset_validation/",
+    #                                             #  class_dict willcome from the dataloader since generally model building needs no. of classes
+    #                                             class_dict=class_dict
+                                        #  ).generate_anchor()
     model = model_class.build_model(
-        version=version, n_classes=n_classes, training=is_training)
+                                    version=version, 
+                                    n_classes=len(class_dict), 
+                                    anchors=anchors, 
+                                    training=is_training
+                                    )
 
     return model
 
 
 def main():
 
-    yolo = construct_model(Yolo, 's', 20, True)
+    yolo = construct_model(Yolo, 's', {                                                                                                                        
+                                        'aeroplane': 0,                                                                                                      
+                                        'bicycle': 1,                                                                                                        
+                                        'bird': 2,                                                                                                           
+                                        'boat': 3,                                                                                                           
+                                        'bottle': 4,                                                                                                         
+                                        'bus': 5,                                                                                                            
+                                        'car': 6,                                                                                                            
+                                        'cat': 7,                                                                                                            
+                                        'chair': 8,                                                                                                          
+                                        'cow': 9,                                                                                                            
+                                        'diningtable': 10,                                                                                                   
+                                        'dog': 11,                                                                                                           
+                                        'horse': 12,                                                                                                         
+                                        'motorbike': 13,                                                                                                     
+                                        'person': 14,                                                                                                        
+                                        'pottedplant': 15,                                                                                                   
+                                        'sheep': 16,                                                                                                         
+                                        'sofa': 17,                                                                                                          
+                                        'train': 18,                                                                                                         
+                                        'tvmonitor': 19                                                                                                      
+                                    }, 
+                                    np.array([[19.0, 25.0], [29.0, 61.0], [51.0, 104.0], [58.0, 40.0], [97.0, 179.0], [110.0, 89.0], [179.0, 268.0], [240.0, 143.0], [372.0, 298.0]]),
+                                    True)
 
     print(yolo.summary())
 
