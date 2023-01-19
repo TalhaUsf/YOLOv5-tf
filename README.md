@@ -1,3 +1,25 @@
+
+
+<h1>Talha Implementation </h1>
+<p>All models of yolo family can be loaded using the same function</p>
+<b>see the following script for more information🗒️ </b>
+
+```bash
+python construct_model.py
+```
+
+
+<p> For testing the dataloader </p>
+```python
+a = IDataloader(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_train").write_image_files()
+
+a.yolo_generate_tf_record()
+```
+
+
+<h1>Original README</h1>
+
+
 [YOLOv5](https://github.com/ultralytics/yolov5) implementation using TensorFlow 2
 
 #### Train
