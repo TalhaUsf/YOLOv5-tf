@@ -197,22 +197,28 @@ class Yolo(IYoloFamily):
         x = tf.keras.layers.concatenate([x, x1])
         x = self.csp(x, int(round(width * 256)), int(round(depth * 3)), False)
         # ⚠️ P3 --> image_size // 8
-        p3 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p3_{self.image_size//8}x{self.image_size//8}x3x{self.n_classes+5}',
-                                    kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
+        p3 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1,
+                                    kernel_initializer=super().initializer, kernel_regularizer=super().l2, name='P3_80x80')(x)
+        # p3 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p3_{self.image_size//8}x{self.image_size//8}x3x{self.n_classes+5}',
+        #                             kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
 
         x = self.conv(x, int(round(width * 256)), 3, 2)
         x = tf.keras.layers.concatenate([x, x4])
         x = self.csp(x, int(round(width * 512)), int(round(depth * 3)), False)
         # ⚠️ P4 --> image_size // 16
-        p4 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p4_{self.image_size//16}x{self.image_size//16}x3x{self.n_classes+5}',
-                                    kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
+        p4 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1,
+                                    kernel_initializer=super().initializer, kernel_regularizer=super().l2, name='P4_40x40')(x)
+        # p4 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p4_{self.image_size//16}x{self.image_size//16}x3x{self.n_classes+5}',
+        #                             kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
 
         x = self.conv(x, int(round(width * 512)), 3, 2)
         x = tf.keras.layers.concatenate([x, x3])
         x = self.csp(x, int(round(width * 1024)), int(round(depth * 3)), False)
         # ⚠️ P5 --> self.image_size // 32
-        p5 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p5_{self.image_size//32}x{self.image_size//32}x3x{self.n_classes+5}',
-                                    kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
+        p5 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1,
+                                    kernel_initializer=super().initializer, kernel_regularizer=super().l2, name='P5_20x20')(x)
+        # p5 = tf.keras.layers.Conv2D(3 * (self.n_classes + 5), 1, name=f'p5_{self.image_size//32}x{self.image_size//32}x3x{self.n_classes+5}',
+        #                             kernel_initializer=super().initializer, kernel_regularizer=super().l2)(x)
 
         # ==========================================================================
         #                           ☠️  Model Output layer Surgery
@@ -296,9 +302,39 @@ def main():
                                     True)
 
     print(yolo.summary())
+    random_image = tf.random.normal((8, 640, 640, 3)) # 8 is the batch size
+    p5_pred, p4_pred, p3_pred = yolo.predict(random_image)
+    breakpoint()
+    
+    tf.keras.utils.plot_model(
+                                yolo,
+                                to_file='model_s.png',
+                                show_shapes=True,
+                                show_dtype=False,
+                                show_layer_names=True,
+                                rankdir='TB',
+                                expand_nested=False,
+                                dpi=300,
+                                layer_range=None,
+                                show_layer_activations=False
+                            )
 
 # %%
 
 
 if __name__ == '__main__':
     main()
+
+
+
+#%% 
+
+import matplotlib.pyplot as plt
+import pandas as pd
+f, ax = plt.subplots(1, 1, figsize=(10, 10))
+pd.read_csv('training_logs.csv', skipinitialspace=True).plot(x='epoch', y=['loss', 'val_loss'], title="Loss values", ax=ax)
+ax.set_ylim(0, 1000)
+
+
+# %%
+f.savefig('losses.png')

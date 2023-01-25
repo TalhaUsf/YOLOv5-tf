@@ -267,8 +267,10 @@ class ComputeLoss(object):
     def __call__(self, y_pred, y_true):
         loss = 0.
         anchor_group = [config.anchors[6:9], config.anchors[3:6], config.anchors[0:3]]
-
+        # [y_pred_1, y_pred_2, y_pred_3] --> list , [16, 20, 20, 75]
+        # [y_true_1, y_true_2, y_true_3] --> list , [16, 20, 20, 3, 25]
         for i in range(len(y_pred)):
+            breakpoint()
             loss += self.compute_loss(y_pred[i], y_true[i], anchor_group[i])
         return loss
 

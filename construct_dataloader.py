@@ -34,7 +34,7 @@ class IDataloader:
         Console().log(f"images.txt created in {self.data_dir}, {len(images2write)} images written")
         return self
     
-    def yolo_generate_tf_record(self):
+    def yolo_generate_tf_record(self, class_generate : Union[bool, dict]):
         '''
         🔥 start from here
         spawn processes equal to no. of cpus to write individual tf-record files to the dataset folder
@@ -50,14 +50,21 @@ class IDataloader:
                 file_names.append(line.rstrip().split(' ')[0])
         Console().log(f"found {len(file_names)} images in {self.data_dir}/images.txt")
         sentinel = ("", [])
-        
+        self.tf_files_to_read = file_names
         # set self.class_dict attribute
         Console().log(f"getting class mapping for dataset")
         
         # # --------------------------------------------------------------------------
         # #                       🔵 making the classes mapping                        
         # # --------------------------------------------------------------------------
-        self.get_class_mapping(file_names)
+        if isinstance(class_generate, bool):
+            if class_generate == True:
+                # generate the mapping (from training dataloader)
+                # internally it will set self.class_dict attribute
+                self.get_class_mapping(file_names)
+        if isinstance(class_generate, dict):
+            # use the mapping provided (for test dataloader)
+            self.class_dict = class_generate
         # breakpoint()
         assert hasattr(self, 'class_dict'), "class_dict attribute not found, call `get_class_mapping` method first"
         Console().log(f"➡️\tgot class mapping for dataset\n\n{self.class_dict}")
@@ -325,6 +332,79 @@ class IDataloader:
         
 
 
+
+
+
+#%%
+# # --------------------------------------------------------------------------
+# #                              yolo dataloader                        
+# # --------------------------------------------------------------------------
+
+class YoloDataloader(IDataloader):
+    
+    def __init__(self, data_dir : str, anchors : np.ndarray):
+        
+        super().__init__(data_dir, anchors)
+        
+        self.description = {'in_image': tf.io.FixedLenFeature([], tf.string),
+                            'y_true_1': tf.io.FixedLenFeature([], tf.string),
+                            'y_true_2': tf.io.FixedLenFeature([], tf.string),
+                            'y_true_3': tf.io.FixedLenFeature([], tf.string)}
+
+    def parse_data(self, tf_record):
+        features = tf.io.parse_single_example(tf_record, self.description)
+
+        in_image = tf.io.decode_raw(features['in_image'], tf.float32)
+        in_image = tf.reshape(in_image, (self.image_size, self.image_size, 3))
+        in_image = in_image / 255.
+
+        y_true_1 = tf.io.decode_raw(features['y_true_1'], tf.float32)
+        y_true_1 = tf.reshape(y_true_1,
+                              (self.image_size // 32, self.image_size // 32, 3, 5 + len(self.class_dict)))
+
+        y_true_2 = tf.io.decode_raw(features['y_true_2'], tf.float32)
+        y_true_2 = tf.reshape(y_true_2,
+                              (self.image_size // 16, self.image_size // 16, 3, 5 + len(self.class_dict)))
+
+        y_true_3 = tf.io.decode_raw(features['y_true_3'], tf.float32)
+        y_true_3 = tf.reshape(y_true_3,
+                              (self.image_size // 8,  self.image_size // 8,  3, 5 + len(self.class_dict)))
+
+        return in_image, y_true_1, y_true_2, y_true_3
+
+    def get_dataloader(self, batch_size : int = 16, epochs : Union[int, None] = None):
+        '''
+        get the tf.data.Dataset object as dataloader, it will be reading the ground truths from the tfrecord files
+
+        Parameters
+        ----------
+        batch_size : int, optional
+            batch size used to load the samples, by default 16
+        epochs : Union[int, None], optional
+            if epochs given then dataset will be repeated that much number of times (is only useful in custom training loops), by default None
+
+        Returns
+        -------
+        _type_
+            _description_
+        '''        
+        file_names = [os.path.join(self.data_dir, 'TF', k+'.tf') for k in tqdm.tqdm(self.tf_files_to_read, desc='reading tfrecord annotation files', colour='magenta', total=len(self.tf_files_to_read))]
+        Console().log(f"{len(file_names)} tfrecord files being read for generating ground-truths")
+        dataset = tf.data.TFRecordDataset(file_names, 'GZIP')
+        # 🔴 following two attributes are for calculating steps/epoch
+        self.dataset_length = len(file_names)
+        self.get_batch_size = batch_size
+        dataset = dataset.map(self.parse_data, os.cpu_count(), tf.data.experimental.AUTOTUNE)
+        if epochs is not None:
+            dataset = dataset.repeat(epochs + 1)
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.map(self.separate, os.cpu_count(), tf.data.experimental.AUTOTUNE)
+        dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+        return dataset
+
+    def separate(self, a, b, c, d):
+        return (a, (b,c,d))
+
 #%%
 # # --------------------------------------------------------------------------
 # #                            🔥 anchor generator                        
@@ -518,8 +598,6 @@ class MixinAnchorGenerator:
         return boxes, None
 
 
-    
-
 
 # %%
 
@@ -532,8 +610,16 @@ if __name__ == "__main__":
     anchors = gen.anchors
     
     # generate train / test dataset files
-    a = IDataloader(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_validation",
-                    anchors=anchors).write_image_files()
+    # a = IDataloader(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_validation",
+    #                 anchors=anchors).write_image_files()
 
-    a.yolo_generate_tf_record()
-    class_dict = a.class_dict
+    # a.yolo_generate_tf_record()
+    # class_dict = a.class_dict
+    
+    a = YoloDataloader(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_validation",
+                    anchors=anchors).write_image_files()
+    a.yolo_generate_tf_record(class_generate=True)
+    dataloader = a.get_dataloader()
+    for idx, k in enumerate(dataloader):
+        breakpoint()
+        Console().print(f"BATCH - {idx} loaded")
