@@ -329,12 +329,12 @@ if __name__ == '__main__':
 
 #%% 
 
-import matplotlib.pyplot as plt
-import pandas as pd
-f, ax = plt.subplots(1, 1, figsize=(10, 10))
-pd.read_csv('training_logs.csv', skipinitialspace=True).plot(x='epoch', y=['loss', 'val_loss'], title="Loss values", ax=ax)
-ax.set_ylim(0, 1000)
+# import matplotlib.pyplot as plt
+# import pandas as pd
+# f, ax = plt.subplots(1, 1, figsize=(10, 10))
+# pd.read_csv('training_logs.csv', skipinitialspace=True).plot(x='epoch', y=['loss', 'val_loss'], title="Loss values", ax=ax)
+# ax.set_ylim(0, 1000)
 
 
-# %%
-f.savefig('losses.png')
+# # %%
+# f.savefig('losses.png')

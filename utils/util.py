@@ -63,26 +63,28 @@ def random_flip(image, boxes):
 
 
 def process_box(boxes, labels):
-    anchors_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-    anchors = config.anchors
-    box_centers = (boxes[:, 0:2] + boxes[:, 2:4]) / 2
-    box_size = boxes[:, 2:4] - boxes[:, 0:2]
+    anchors_mask = [[6, 7, 8], 
+                    [3, 4, 5], 
+                    [0, 1, 2]]
+    anchors = config.anchors # [9, 2]
+    box_centers = (boxes[:, 0:2] + boxes[:, 2:4]) / 2 # [Xc, Yc]
+    box_size = boxes[:, 2:4] - boxes[:, 0:2] # [W, H]
     # 🔗 https://jonathan-hui.medium.com/understanding-feature-pyramid-networks-for-object-detection-fpn-45b227b9106c
-    # y_true_1 corresponds to P5
+    # y_true_1 corresponds to P5 , image_size // 32
     y_true_1 = numpy.zeros((config.image_size // 32,
                             config.image_size // 32,
                             3, 5 + len(config.class_dict)), numpy.float32)
-    # y_true_1 corresponds to P4
+    # y_true_1 corresponds to P4 , image_size // 16
     y_true_2 = numpy.zeros((config.image_size // 16,
                             config.image_size // 16,
                             3, 5 + len(config.class_dict)), numpy.float32)
-    # y_true_1 corresponds to P3
+    # y_true_1 corresponds to P3 , image_size // 8
     y_true_3 = numpy.zeros((config.image_size // 8,
                             config.image_size // 8,
                             3, 5 + len(config.class_dict)), numpy.float32)
 
     y_true = [y_true_1, y_true_2, y_true_3]
-
+    
     box_size = numpy.expand_dims(box_size, 1)
 
     min_np = numpy.maximum(- box_size / 2, - anchors / 2)

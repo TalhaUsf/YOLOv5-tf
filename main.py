@@ -7,7 +7,7 @@ import cv2
 import numpy
 import tensorflow as tf
 import tqdm
-
+from shutil import rmtree
 from nets import nn
 from utils import config
 from utils import util
@@ -95,6 +95,7 @@ class ComputeLoss(tf.keras.losses.Loss):
         # REFERENCE 🔖 https://github.com/keras-team/keras/blob/9118ea65f40874e915dd1299efd1cc3a7ca2c333/keras/engine/training.py#L816-L848
         loss = 0. # kk = tf.stack([k for k in y_pred], axis=0)
         anchor_group = [self.anchors[6:9], self.anchors[3:6], self.anchors[0:3]] # [P5_20x20, P4_40x40, P3_80x80]
+        _batch_sz = tf.cast(tf.shape(y_pred)[0], tf.float32)
         # breakpoint()
         # 🏹 in custom loop implementation y_true was [p5_true, p4_true, p3_true]
         # 🏹 in custom loop implementation y_pred was [p5_pred, p4_pred, p3_pred]
@@ -107,8 +108,8 @@ class ComputeLoss(tf.keras.losses.Loss):
         #                             )
         # return loss
         # return self.compute_loss(y_pred=tf.stack([k for k in y_true], axis=0), y_true=tf.stack([k for k in y_pred], axis=0), anchors=anchor_group[0])
-        
-        return self.compute_loss(y_pred=y_pred, y_true=y_true, anchors=anchor_group[self.anchors_index])
+        loss_at_current_scale = self.compute_loss(y_pred=y_pred, y_true=y_true, anchors=anchor_group[self.anchors_index]) / _batch_sz
+        return loss_at_current_scale
         
     def process_layer(self, feature_map, anchors):
         # gets a single sample
@@ -278,7 +279,7 @@ def train_model(model, train_dir, test_dir):
         train_DL = train_loader.get_dataloader(batch_size = global_batch_size)
         batch_size = train_loader.get_batch_size
         total_dataset = train_loader.dataset_length
-        epochs = 100
+        epochs = 200
         # calculate total training steps
         total_training_steps = (total_dataset // batch_size) * epochs
         
@@ -306,7 +307,7 @@ def train_model(model, train_dir, test_dir):
         
         # compile model
         
-        lr_scheduler = tf.keras.experimental.CosineDecay(0.001, int(0.8*total_training_steps), alpha=0.01, name='Cosine Decay')
+        lr_scheduler = tf.keras.experimental.CosineDecay(0.01, int(0.8*total_training_steps), alpha=0.01, name='Cosine Decay')
         
         yolo.compile(loss={
                          'P5_20x20':ComputeLoss(anchors, class_dict, 'P5_20x20'),
@@ -315,15 +316,18 @@ def train_model(model, train_dir, test_dir):
                     }, optimizer=tf.keras.optimizers.Adam(learning_rate=lr_scheduler), run_eagerly=True)
         
         
+        if os.path.exists('ckpts'):
+            rmtree('ckpts', ignore_errors=False)
+            Console().log(f"ckpts dir. 📂 made", style='red')
         
             
         
-        yolo.fit(train_DL, epochs=100, validation_data=test_DL, callbacks=[
+        yolo.fit(train_DL, epochs=epochs, validation_data=test_DL, callbacks=[
                 tf.keras.callbacks.TensorBoard(log_dir='./logs'), 
                 tf.keras.callbacks.CSVLogger(filename='training_logs.csv', separator=',', append=False),
                 
                 tf.keras.callbacks.ModelCheckpoint(
-                                                    filepath='weights.{epoch:03d}-{val_loss:.5f}.hdf5',
+                                                    filepath='ckpts/weights.{epoch:03d}-{val_loss:.5f}.hdf5',
                                                     monitor='val_loss',
                                                     verbose=1,
                                                     save_best_only=False,

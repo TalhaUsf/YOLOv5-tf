@@ -16,6 +16,28 @@ a = IDataloader(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_trai
 a.yolo_generate_tf_record()
 ```
 
+# How it will be used in the Trainer
+```python
+gen = MixinAnchorGenerator()._get_info_for_generating_anchors(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_validation")
+gen.generate_anchor()
+anchors = gen.anchors
+
+# generate train / test dataset files
+# a = IDataloader(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_validation",
+#                 anchors=anchors).write_image_files()
+
+# a.yolo_generate_tf_record()
+# class_dict = a.class_dict
+
+a = YoloDataloader(data_dir="/home/fsuser/AI_ENGINE/yolov5_tf_original/dataset_validation",
+                anchors=anchors).write_image_files()
+a.yolo_generate_tf_record()
+dataloader = a.get_dataloader()
+for idx, k in enumerate(dataloader):
+    Console().print(f"BATCH - {idx} loaded")
+```
+
+
 
 <h1>Original README</h1>
 

@@ -6,8 +6,8 @@ depth = [0.33, 0.67, 1.0, 1.33]
 
 versions = ['s', 'm', 'l', 'x']
 # data_dir = os.path.join('..', 'Dataset', 'COCO')
-# data_dir = os.path.join('..', 'dataset_train')
-data_dir = os.path.join('..', 'dataset_validation')
+data_dir = os.path.join('..', 'dataset_train')
+# data_dir = os.path.join('..', 'dataset_validation')
 
 # threshold = 0.3
 threshold = 0.9
@@ -54,7 +54,7 @@ class_dict = {
     'train': 18,                                                                                                         
     'tvmonitor': 19                                                                                                      
 }    
-version = 's'
+version = 'm'
 # anchors = numpy.array([[8., 9.],    [16., 24.],   [28., 58.],
 #                        [41., 25.],  [58., 125.],  [71., 52.],
 #                        [129., 97.], [163., 218.], [384., 347.]], numpy.float32)
